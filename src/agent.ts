@@ -392,10 +392,11 @@ export async function runAgent(
 
     // Classify the error and attach context-aware metadata
     const contextTokens = lastCallInputTokens || lastCallCacheRead || 0;
+    const rawMsg = (err as Error)?.message ?? String(err);
     const classified = classifyError(err, contextTokens || undefined);
     logger.error(
-      { category: classified.category, recovery: classified.recovery, originalMsg: (err as Error)?.message },
-      'Agent query failed (classified)',
+      { category: classified.category, recovery: classified.recovery },
+      `Agent query failed [${classified.category}]: ${rawMsg}`,
     );
     throw classified;
   } finally {
