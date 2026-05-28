@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -206,28 +205,16 @@ export async function runAgent(
   // than a global one (e.g. in Railway where global installs may not be
   // on PATH at runtime).
   const localBin = path.join(PROJECT_ROOT, 'node_modules', '.bin');
-  const claudeBin = path.join(localBin, 'claude');
-  const claudeExists = fs.existsSync(claudeBin);
-  const globalClaude = process.env.PATH?.split(':').find(
-    (p) => fs.existsSync(path.join(p, 'claude'))
-  );
-  const resolvedBin = claudeExists ? claudeBin : (globalClaude ? path.join(globalClaude, 'claude') : 'claude');
-  logger.info(`Claude binary: exists=${claudeExists} path=${resolvedBin} global=${globalClaude ?? 'none'}`);
-
   const currentPath = (sdkEnv.PATH as string | undefined) ?? process.env.PATH ?? '';
   if (!currentPath.split(':').includes(localBin)) {
     (sdkEnv as Record<string, string | undefined>).PATH = `${localBin}:${currentPath}`;
   }
 
-  // Run claude --version to surface any startup errors before the SDK tries to use it.
-  const versionResult = spawnSync(resolvedBin, ['--version'], {
-    env: sdkEnv as NodeJS.ProcessEnv,
-    timeout: 10000,
-    encoding: 'utf-8',
-  });
-  logger.info(
-    `Claude version check: code=${versionResult.status} stdout=${(versionResult.stdout ?? '').slice(0, 300)} stderr=${(versionResult.stderr ?? '').slice(0, 300)} spawnErr=${versionResult.error?.message ?? 'none'}`,
-  );
+  // Claude Code 2.x blocks --dangerously-skip-permissions when running as root
+  // (e.g. Railway containers). Fall back to 'default' mode which still allows
+  // tool use in the working directory without the root security restriction.
+  const isRoot = process.getuid?.() === 0;
+  const permissionMode = isRoot ? 'default' : 'bypassPermissions';
 
   let newSessionId: string | undefined;
   let resultText: string | null = null;
@@ -267,9 +254,11 @@ export async function runAgent(
         // 'project' loads CLAUDE.md from cwd; 'user' loads ~/.claude/skills/ and user settings
         settingSources: ['project', 'user'],
 
-        // Skip all permission prompts — this is a trusted personal bot on your own machine
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
+        // Skip permission prompts. bypassPermissions is blocked when running as
+        // root (e.g. Railway), so we fall back to 'default' which still allows
+        // tool use within the working directory.
+        permissionMode,
+        ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
 
         // Cap agentic turns to prevent runaway tool-use loops (e.g. retrying
         // stale cookies 40+ times). Configurable via AGENT_MAX_TURNS in .env.
