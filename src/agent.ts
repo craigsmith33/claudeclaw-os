@@ -205,6 +205,15 @@ export async function runAgent(
   // than a global one (e.g. in Railway where global installs may not be
   // on PATH at runtime).
   const localBin = path.join(PROJECT_ROOT, 'node_modules', '.bin');
+  const claudeBin = path.join(localBin, 'claude');
+  const claudeExists = fs.existsSync(claudeBin);
+  const globalClaude = process.env.PATH?.split(':').find(
+    (p) => fs.existsSync(path.join(p, 'claude'))
+  );
+  logger.info(
+    { claudeBin, claudeExists, globalClaude: globalClaude ?? 'not found', PATH: process.env.PATH },
+    'Claude binary check',
+  );
   const currentPath = (sdkEnv.PATH as string | undefined) ?? process.env.PATH ?? '';
   if (!currentPath.split(':').includes(localBin)) {
     (sdkEnv as Record<string, string | undefined>).PATH = `${localBin}:${currentPath}`;
