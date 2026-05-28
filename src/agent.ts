@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -210,14 +211,23 @@ export async function runAgent(
   const globalClaude = process.env.PATH?.split(':').find(
     (p) => fs.existsSync(path.join(p, 'claude'))
   );
-  logger.info(
-    { claudeBin, claudeExists, globalClaude: globalClaude ?? 'not found', PATH: process.env.PATH },
-    'Claude binary check',
-  );
+  const resolvedBin = claudeExists ? claudeBin : (globalClaude ? path.join(globalClaude, 'claude') : 'claude');
+  logger.info(`Claude binary: exists=${claudeExists} path=${resolvedBin} global=${globalClaude ?? 'none'}`);
+
   const currentPath = (sdkEnv.PATH as string | undefined) ?? process.env.PATH ?? '';
   if (!currentPath.split(':').includes(localBin)) {
     (sdkEnv as Record<string, string | undefined>).PATH = `${localBin}:${currentPath}`;
   }
+
+  // Run claude --version to surface any startup errors before the SDK tries to use it.
+  const versionResult = spawnSync(resolvedBin, ['--version'], {
+    env: sdkEnv as NodeJS.ProcessEnv,
+    timeout: 10000,
+    encoding: 'utf-8',
+  });
+  logger.info(
+    `Claude version check: code=${versionResult.status} stdout=${(versionResult.stdout ?? '').slice(0, 300)} stderr=${(versionResult.stderr ?? '').slice(0, 300)} spawnErr=${versionResult.error?.message ?? 'none'}`,
+  );
 
   let newSessionId: string | undefined;
   let resultText: string | null = null;
