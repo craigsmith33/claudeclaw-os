@@ -200,6 +200,16 @@ export async function runAgent(
   // can otherwise read every credential the parent process holds.
   const sdkEnv = getScrubbedSdkEnv(secrets);
 
+  // Ensure the local node_modules/.bin is in PATH so the SDK can find the
+  // claude binary when it's installed as a local package dependency rather
+  // than a global one (e.g. in Railway where global installs may not be
+  // on PATH at runtime).
+  const localBin = path.join(PROJECT_ROOT, 'node_modules', '.bin');
+  const currentPath = (sdkEnv.PATH as string | undefined) ?? process.env.PATH ?? '';
+  if (!currentPath.split(':').includes(localBin)) {
+    (sdkEnv as Record<string, string | undefined>).PATH = `${localBin}:${currentPath}`;
+  }
+
   let newSessionId: string | undefined;
   let resultText: string | null = null;
   let usage: UsageInfo | null = null;
