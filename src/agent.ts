@@ -443,6 +443,13 @@ export async function runAgentWithRetry(
 ): Promise<AgentResult> {
   let lastError: AgentError | undefined;
 
+  // On a subprocess_crash, the most common cause on Railway is a stale
+  // session ID in the DB pointing to a ~/.claude/ session file that no longer
+  // exists (wiped on container restart). Retrying with the same session would
+  // fail identically. Instead, drop the session on the first crash so the
+  // retry starts a fresh conversation.
+  let currentSessionId = sessionId;
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const currentModel =
@@ -452,7 +459,7 @@ export async function runAgentWithRetry(
           : model;
 
       return await runAgent(
-        message, sessionId, onTyping, onProgress,
+        message, currentSessionId, onTyping, onProgress,
         currentModel, abortController, onStreamText,
         mcpAllowlist,
       );
@@ -476,6 +483,13 @@ export async function runAgentWithRetry(
       );
       // Add jitter (0-25% of delay)
       const jitter = Math.random() * delayMs * 0.25;
+
+      // subprocess_crash almost always means the session file is gone.
+      // Drop the session so the retry starts fresh rather than failing again.
+      if (err.category === 'subprocess_crash' && currentSessionId) {
+        logger.warn({ droppedSession: currentSessionId }, 'Dropping stale session before retry');
+        currentSessionId = undefined;
+      }
 
       logger.warn(
         { attempt: attempt + 1, category: err.category, delayMs: Math.round(delayMs + jitter) },
