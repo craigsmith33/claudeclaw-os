@@ -288,9 +288,21 @@ ClaudeClaw stores conversation history, extracted memories, scheduled tasks, Wha
 
 Mount a persistent volume at the project root (`/app` on Railway, a Fly volume on Fly, etc.) so `store/` survives restarts. If your platform doesn't offer persistence, ClaudeClaw will work as a stateless bot but the memory and messaging features won't behave the way they do locally.
 
+### 3. Only the main agent starts
+
+`npm start` boots only the `main` agent. ClaudeClaw runs one OS process per agent, and on a laptop the specialist agents (research, comms, content, ops) are launched by launchd or systemd. A container has neither, so on Railway/Fly/Render only `main` ever connects, and the dashboard's **Activate** button (which shells out to `systemctl`) fails silently.
+
+Use the bundled supervisor instead. Set the start command to:
+
+```
+npm run start:all
+```
+
+(Railway: this repo ships a `railway.json` that already sets this.) The supervisor boots `main` plus **every agent whose bot token is set in the environment**. Each agent declares its token var in `agent.yaml` — research uses `RESEARCH_BOT_TOKEN`, comms `COMMS_BOT_TOKEN`, and so on. To turn an agent on, add its token to your platform's variables and redeploy; to turn it off, remove the variable. Each agent needs its own bot from [@BotFather](https://t.me/botfather) (one token = one bot). `agent.yaml` is gitignored and container disks are ephemeral, so the supervisor regenerates `agent.yaml` from the shipped `agent.yaml.example` at boot for any enabled agent.
+
 ### Other gotchas
 
-- **CPU/RAM**: the SDK subprocess is a full `node` + `claude` runtime per query. 512 MB minimum, 1 GB recommended.
+- **CPU/RAM**: the SDK subprocess is a full `node` + `claude` runtime per query. 512 MB minimum, 1 GB recommended — and that's *per running agent*, so budget ~1 GB each when you start several with the supervisor.
 - **Outbound network**: needs to reach `api.anthropic.com`, `api.telegram.org`, and any optional services you enable (Gemini, ElevenLabs, Slack, etc.).
 - **launchd / systemd**: skip the background-service step in setup. Your platform manages the process.
 - **Cloudflare Tunnel**: if you want the dashboard public, the cloud platform's own URL will already be public. You don't need the tunnel.
