@@ -4,6 +4,9 @@
   "description": "Your personal Claude Code assistant, delivered to your phone via Telegram",
   "type": "module",
   "main": "dist/index.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "dev:web": "vite",
