@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { loadAgentConfig, listAgentIds, resolveAgentDir, resolveAgentClaudeMd, refreshWarRoomRoster } from './agent-config.js';
@@ -74,7 +75,16 @@ if (AGENT_ID !== 'main') {
   }
 }
 
-const PID_FILE = path.join(STORE_DIR, `${AGENT_ID === 'main' ? 'claudeclaw' : `agent-${AGENT_ID}`}.pid`);
+// The single-instance lock PID file lives in the OS temp dir, NOT in
+// STORE_DIR. STORE_DIR is commonly a persistent volume (Railway, Fly, etc.),
+// and a PID written there survives container restarts. Because container PIDs
+// are low and reused, a stale PID from a previous run can resolve to this
+// process's own parent on the next boot — acquireLock() would then kill the
+// parent and the app gets terminated before it finishes starting, looping
+// forever. os.tmpdir() is per-container ephemeral, so a fresh container never
+// inherits a poisoned PID, while still giving same-machine single-instance
+// protection during a normal local session.
+const PID_FILE = path.join(os.tmpdir(), `${AGENT_ID === 'main' ? 'claudeclaw' : `agent-${AGENT_ID}`}.pid`);
 
 function showBanner(): void {
   const bannerPath = path.join(PROJECT_ROOT, 'banner.txt');
