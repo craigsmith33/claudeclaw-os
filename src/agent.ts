@@ -210,11 +210,16 @@ export async function runAgent(
     (sdkEnv as Record<string, string | undefined>).PATH = `${localBin}:${currentPath}`;
   }
 
-  // Claude Code 2.x blocks --dangerously-skip-permissions when running as root
-  // (e.g. Railway containers). Fall back to 'default' mode which still allows
-  // tool use in the working directory without the root security restriction.
-  const isRoot = process.getuid?.() === 0;
-  const permissionMode = isRoot ? 'default' : 'bypassPermissions';
+  // Claude Code blocks --dangerously-skip-permissions (bypassPermissions) when
+  // running as root UNLESS the environment is marked a sandbox via IS_SANDBOX=1.
+  // Railway and other container hosts run as root and are sandboxed, so opt in
+  // there. Without this the agent falls back to a restricted mode and silently
+  // cannot run Bash / the project CLIs, so the bot reports "no permission".
+  const isRoot = process.platform !== 'win32' && process.getuid?.() === 0;
+  if (isRoot) {
+    (sdkEnv as Record<string, string | undefined>).IS_SANDBOX = '1';
+  }
+  const permissionMode = 'bypassPermissions';
 
   let newSessionId: string | undefined;
   let resultText: string | null = null;
@@ -254,9 +259,9 @@ export async function runAgent(
         // 'project' loads CLAUDE.md from cwd; 'user' loads ~/.claude/skills/ and user settings
         settingSources: ['project', 'user'],
 
-        // Skip permission prompts. bypassPermissions is blocked when running as
-        // root (e.g. Railway), so we fall back to 'default' which still allows
-        // tool use within the working directory.
+        // Skip permission prompts so the agent can use Bash / project CLIs
+        // unattended. As root this requires IS_SANDBOX=1 (set above) or the
+        // SDK refuses bypassPermissions.
         permissionMode,
         ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
 
