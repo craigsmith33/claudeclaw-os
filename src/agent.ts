@@ -3,7 +3,7 @@ import path from 'path';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
-import { AGENT_MAX_TURNS, PROJECT_ROOT, agentCwd } from './config.js';
+import { AGENT_MAX_TURNS, PROJECT_ROOT, agentCwd, agentSystemPrompt } from './config.js';
 import { readEnvFile } from './env.js';
 import { classifyError, AgentError } from './errors.js';
 import { logger } from './logger.js';
@@ -246,6 +246,18 @@ export async function runAgent(
     // SDK Options.mcpServers expects Record<string, McpServerConfig>
     const mcpServerSpecs = mcpServerNames.length > 0 ? mcpServers : undefined;
 
+    // Specialist sub-agents (running with a cwd under the project root) must NOT
+    // load the root CLAUDE.md, or they inherit the main "Chief of Staff" persona.
+    // They get their identity from agents/<id>/CLAUDE.md, carried as a persistent
+    // appended system prompt. The main agent keeps the SDK default + project
+    // CLAUDE.md.
+    const isSubAgent = !!agentCwd && agentCwd !== PROJECT_ROOT;
+    const settingSources: ('project' | 'user')[] = isSubAgent ? ['user'] : ['project', 'user'];
+    const subAgentSystemPrompt =
+      isSubAgent && agentSystemPrompt
+        ? { type: 'preset' as const, preset: 'claude_code' as const, append: agentSystemPrompt }
+        : undefined;
+
     for await (const event of query({
       prompt: singleTurn(message),
       options: {
@@ -256,8 +268,15 @@ export async function runAgent(
         // Resume the previous session for this chat (persistent context)
         resume: sessionId,
 
-        // 'project' loads CLAUDE.md from cwd; 'user' loads ~/.claude/skills/ and user settings
-        settingSources: ['project', 'user'],
+        // 'project' makes the SDK load the git-root CLAUDE.md as project memory
+        // (regardless of cwd), and 'user' loads ~/.claude. The main agent needs
+        // 'project' for its Chief of Staff persona + operational docs. Specialist
+        // sub-agents must NOT load it, or they inherit the "Chief of Staff"
+        // identity from the root file and stop being themselves. Their own role
+        // is injected from agents/<id>/CLAUDE.md in bot.ts, so they only need
+        // 'user' here.
+        settingSources,
+        ...(subAgentSystemPrompt ? { systemPrompt: subAgentSystemPrompt } : {}),
 
         // Skip permission prompts so the agent can use Bash / project CLIs
         // unattended. As root this requires IS_SANDBOX=1 (set above) or the
