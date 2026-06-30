@@ -129,6 +129,12 @@ const AVAILABLE_MODELS: Record<string, string> = {
 };
 const DEFAULT_MODEL_LABEL = 'opus';
 
+// Durable default model for the MAIN agent. The dashboard /model picker only
+// sets an in-memory override that's lost on restart/redeploy, so on hosts like
+// Railway the main agent reverts to Opus every boot. Set MAIN_MODEL in the
+// environment (e.g. claude-haiku-4-5) to make a cheaper default stick.
+const MAIN_DEFAULT_MODEL = process.env.MAIN_MODEL || 'claude-opus-4-6';
+
 export function setMainModelOverride(model: string): void {
   if (ALLOWED_CHAT_ID) chatModelOverride.set(ALLOWED_CHAT_ID, model);
 }
@@ -519,7 +525,7 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
   const userModel = chatModelOverride.get(chatIdStr) ?? agentDefaultModel;
   const effectiveModel = (SMART_ROUTING_ENABLED && !userModel && classifyMessageComplexity(message) === 'simple')
     ? SMART_ROUTING_CHEAP_MODEL
-    : (userModel ?? 'claude-opus-4-6');
+    : (userModel ?? MAIN_DEFAULT_MODEL);
 
   // Start typing immediately, then refresh on interval
   await sendTyping(ctx.api, chatId);
